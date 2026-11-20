@@ -26,8 +26,9 @@ export const SOURCES: { id: SourceId; label: string; credit?: string }[] = [
 
 export type SourceState = { loading: boolean; result: SourceResult | null };
 
-const initial = () =>
-  Object.fromEntries(SOURCES.map((s) => [s.id, { loading: true, result: null }])) as Record<SourceId, SourceState>;
+const PENDING: SourceState = { loading: true, result: null };
+
+const initial = () => Object.fromEntries(SOURCES.map((s) => [s.id, PENDING])) as Record<SourceId, SourceState>;
 
 /** Asks every board in parallel; each one fills in as soon as it answers. */
 export function useListings(profile: Profile | null, roleId: string | null, override?: SearchOverride | null) {
@@ -36,6 +37,9 @@ export function useListings(profile: Profile | null, roleId: string | null, over
   const [refreshReq, setRefreshReq] = useState<{ qs: string; source: SourceId | "all"; n: number } | null>(null);
 
   const handledRefresh = useRef(0);
+  // Part of the effect's inputs, so a newly added source is fetched even when the page keeps its state
+  // (after a hot reload, or a saved tab opened on a newer version of the app).
+  const sourceKey = SOURCES.map((s) => s.id).join(",");
 
   const qs = useMemo(
     () => (profile && roleId ? toQueryString(buildSearchInput(profile, roleId, override)) : null),
@@ -51,7 +55,7 @@ export function useListings(profile: Profile | null, roleId: string | null, over
     const targets = refresh && refreshReq.source !== "all" ? [refreshReq.source] : SOURCES.map((s) => s.id);
     setState((prev) => {
       const next = { ...prev };
-      for (const id of targets) next[id] = { loading: true, result: refresh ? prev[id].result : null };
+      for (const id of targets) next[id] = { loading: true, result: refresh ? (prev[id]?.result ?? null) : null };
       return next;
     });
     for (const id of targets) {
@@ -70,11 +74,17 @@ export function useListings(profile: Profile | null, roleId: string | null, over
         });
     }
     return () => ctrl.abort();
-  }, [qs, refreshReq]);
+  }, [qs, refreshReq, sourceKey]);
+
+  // Every known source always has an entry, even one the state has not heard of yet.
+  const sources = useMemo(
+    () => Object.fromEntries(SOURCES.map((s) => [s.id, state[s.id] ?? PENDING])) as Record<SourceId, SourceState>,
+    [state],
+  );
 
   const listings: Listing[] = useMemo(
-    () => dedupe(SOURCES.flatMap((s) => state[s.id].result?.listings ?? [])),
-    [state],
+    () => dedupe(SOURCES.flatMap((s) => sources[s.id].result?.listings ?? [])),
+    [sources],
   );
 
   const refresh = useCallback(
@@ -83,7 +93,7 @@ export function useListings(profile: Profile | null, roleId: string | null, over
     },
     [qs],
   );
-  const loading = SOURCES.some((s) => state[s.id].loading);
+  const loading = SOURCES.some((s) => sources[s.id].loading);
 
-  return { sources: state, listings, loading, refresh };
+  return { sources, listings, loading, refresh };
 }
