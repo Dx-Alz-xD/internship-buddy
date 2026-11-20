@@ -1,0 +1,209 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-hanken);
+  --font-mono: var(--font-martian);
+  --font-heading: var(--font-archivo);
+  --font-display: var(--font-archivo);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+
+  /* Internship Buddy palette */
+  --color-paper: var(--paper);
+  --color-ink: var(--ink);
+  --color-stamp: var(--stamp);
+  --color-stamp-soft: var(--stamp-soft);
+  --color-marigold: var(--marigold);
+  --color-marigold-soft: var(--marigold-soft);
+  --color-offer: var(--offer);
+  --color-reject: var(--reject);
+
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+/*
+  Paper  #EEF1F6  carbon-copy paper, the page
+  Sheet  #FFFFFF  a single form / card
+  Ink    #18203A  fountain-pen navy, text + primary actions
+  Stamp  #5A3FC0  office stamp-pad violet, statuses only
+  Marigold #E89A0C  highlight for match strength and "new"
+*/
+:root {
+  --paper: #eef1f6;
+  --ink: #18203a;
+  --stamp: #5a3fc0;
+  --stamp-soft: #ebe6fb;
+  --marigold: #e89a0c;
+  --marigold-soft: #fdf0d5;
+  --offer: #1e7f55;
+  --reject: #b8432f;
+
+  --background: var(--paper);
+  --foreground: var(--ink);
+  --card: #ffffff;
+  --card-foreground: var(--ink);
+  --popover: #ffffff;
+  --popover-foreground: var(--ink);
+  --primary: var(--ink);
+  --primary-foreground: #f6f7fb;
+  --secondary: #e3e7f0;
+  --secondary-foreground: var(--ink);
+  --muted: #e6e9f1;
+  --muted-foreground: #5b6480;
+  --accent: var(--stamp-soft);
+  --accent-foreground: var(--stamp);
+  --destructive: var(--reject);
+  --border: #d5dae5;
+  --input: #cdd3e0;
+  --ring: var(--stamp);
+  --chart-1: var(--stamp);
+  --chart-2: var(--marigold);
+  --chart-3: var(--offer);
+  --chart-4: #3b6fd1;
+  --chart-5: var(--reject);
+  --radius: 0.5rem;
+  --sidebar: #e6e9f1;
+  --sidebar-foreground: var(--ink);
+  --sidebar-primary: var(--ink);
+  --sidebar-primary-foreground: #f6f7fb;
+  --sidebar-accent: #dde1ec;
+  --sidebar-accent-foreground: var(--ink);
+  --sidebar-border: #d5dae5;
+  --sidebar-ring: var(--stamp);
+}
+
+.dark {
+  --paper: #0d1120;
+  --ink: #e6e9f2;
+  --stamp: #a08cff;
+  --stamp-soft: #241e45;
+  --marigold: #f4b23e;
+  --marigold-soft: #3a2c10;
+  --offer: #4cc28c;
+  --reject: #f07a64;
+
+  --background: var(--paper);
+  --foreground: var(--ink);
+  --card: #151a2e;
+  --card-foreground: var(--ink);
+  --popover: #171c31;
+  --popover-foreground: var(--ink);
+  --primary: #e6e9f2;
+  --primary-foreground: #121628;
+  --secondary: #1f2540;
+  --secondary-foreground: var(--ink);
+  --muted: #1c2139;
+  --muted-foreground: #98a0ba;
+  --accent: var(--stamp-soft);
+  --accent-foreground: var(--stamp);
+  --destructive: var(--reject);
+  --border: #262d47;
+  --input: #2d3553;
+  --ring: var(--stamp);
+  --sidebar: #11162a;
+  --sidebar-foreground: var(--ink);
+  --sidebar-primary: #e6e9f2;
+  --sidebar-primary-foreground: #121628;
+  --sidebar-accent: #1c2139;
+  --sidebar-accent-foreground: var(--ink);
+  --sidebar-border: #262d47;
+  --sidebar-ring: var(--stamp);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+  html {
+    @apply font-sans;
+  }
+  ::selection {
+    background: var(--stamp-soft);
+    color: var(--stamp);
+  }
+}
+
+@layer components {
+  /* Wide display cut of Archivo for page titles */
+  .font-display-wide {
+    font-family: var(--font-archivo);
+    font-variation-settings: "wdth" 118;
+    letter-spacing: -0.02em;
+  }
+  /* Condensed heavy cut used by the rubber stamps */
+  .font-stamp {
+    font-family: var(--font-archivo);
+    font-variation-settings: "wdth" 62;
+    font-weight: 900;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  /* Small form-style label, like the printed captions on an application form */
+  .form-caption {
+    font-family: var(--font-martian);
+    font-variation-settings: "wdth" 87;
+    font-size: 0.66rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted-foreground);
+  }
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
