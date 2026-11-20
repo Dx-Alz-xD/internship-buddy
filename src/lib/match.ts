@@ -126,7 +126,24 @@ const norm = (s: string) =>
     .trim();
 
 // When the same opening appears twice, keep the copy from the board with the richest data.
-const SOURCE_RANK: Record<string, number> = { internshala: 0, careers: 1, jsearch: 2, himalayas: 3, jobdata: 4, adzuna: 5, careerjet: 6, jooble: 7, linkedin: 8, unstop: 9, programs: 10 };
+const SOURCE_RANK: Record<string, number> = {
+  internshala: 0,
+  careers: 1,
+  hirebase: 2,
+  fantastic: 3,
+  jsearch: 4,
+  himalayas: 5,
+  jobdata: 6,
+  jobindex: 7,
+  remotejobs: 8,
+  adzuna: 9,
+  careerjet: 10,
+  jooble: 11,
+  freshers: 12,
+  linkedin: 13,
+  unstop: 14,
+  programs: 15,
+};
 
 /** Merges the same opening posted on several boards, keeping the most detailed copy. */
 export function dedupe(listings: Listing[]): Listing[] {

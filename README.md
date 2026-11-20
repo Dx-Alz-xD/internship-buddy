@@ -19,7 +19,7 @@ You answer a short profile quiz, starting with your CV. Internship Buddy then se
 - **AI CV review** for any of your target roles: a score, missing keywords, sharper bullet points and fixes
 
 **Discover**
-- Searches up to 11 sources in parallel (see below); each fills in as soon as it answers
+- Searches up to 16 sources in parallel (see below); each fills in as soon as it answers
 - Every listing gets a 0–100 match score with reasons: role, skills you have, location, stipend and freshness
 - **Plain-English search**: type "remote React internships paying 10k+" and it sets the role, place, pay and keywords
 - **AI fit check** on any listing: what you meet, what you lack, each eligibility rule (location, start date, graduation year), warning signs and what to highlight
@@ -56,7 +56,14 @@ You answer a short profile quiz, starting with your CV. Internship Buddy then se
 | Programs | none | Curated internship programmes and research fellowships with deadlines, from [India-Tech-Internships](https://github.com/iitian-vibes/India-Tech-Internships) (MIT) |
 | [Careerjet](https://www.careerjet.com/partners/register/as-publisher) | `CAREERJET_API_KEY` (free) | Large India index with an internship filter |
 | [Adzuna](https://developer.adzuna.com/signup) | `ADZUNA_APP_ID`, `ADZUNA_APP_KEY` (free) | India job index |
-| [Jooble](https://in.jooble.org/api/about) | `JOOBLE_API_KEY` (free on request) | India job index |
+| [Jooble](https://in.jooble.org/api/about) | `JOOBLE_API_KEY` (free on request) | Job index for the key's country (a jooble.org key covers the US, so it runs for searches abroad) |
+| Hirebase (hirebase-jobs-data on RapidAPI) | `RAPIDAPI_KEY` | Internships and entry-level roles in India, searchable by role, with skills and company logos |
+| [Fantastic.jobs](https://fantastic.jobs) | `FANTASTIC_JOBS_API_KEY` | India internships from LinkedIn and career sites, with AI-extracted skills and salaries |
+| Job index (jobs-api21 on RapidAPI) | `RAPIDAPI_KEY` | Latest India intern and trainee postings from Indeed and other boards |
+| Remote Jobs (remote-jobs1 on RapidAPI) | `RAPIDAPI_KEY` | Remote internships open to India |
+| Fresher jobs (jobs-api19 on RapidAPI) | `RAPIDAPI_KEY` | India fresher hiring drives, for final-year students and graduates |
+
+LinkedIn descriptions fall back to Job Search (job-search15 on RapidAPI) when the main LinkedIn API's monthly calls run out.
 
 Sources without a key are skipped and hidden. AI features use [Groq](https://console.groq.com/keys) (`GROQ_API_KEY`).
 
@@ -65,7 +72,8 @@ Sources without a key are skipped and hidden. AI features use [Groq](https://con
 Several free plans are small (Unstop allows 6 calls a month, LinkedIn 50), so the server never calls an API it does not need to:
 
 - Responses are cached on disk in `.data/` and reused until they go stale (6 hours to 5 days per source)
-- Remaining quota is read from each API's rate-limit headers; a source stops being called before it runs out and its last saved results are shown instead
+- Remaining quota is read from each API's rate-limit headers, including plans that count jobs or credits rather than calls; a source stops being called before it runs out and its last saved results are shown instead
+- Sources with tiny plans (Fresher jobs: 10 calls a month, Remote Jobs: 20, Job index: 200 jobs) share one cached page between all searches for several days
 - Identical requests that arrive together share one upstream call
 - AI answers are saved in the browser per listing, so reopening a listing does not call the AI again
 - Listing text is screened for prompt injection before it reaches the AI
@@ -124,7 +132,8 @@ src/
     taxonomy.ts                      roles, degrees, cities, colleges
     store.ts                         local data store
   server/
-    sources.ts, sources-extra.ts     API clients and normalisers
+    sources.ts, sources-extra.ts,
+    sources-rapid.ts                 API clients and normalisers
     ats-boards.ts                    company career boards
     run-source.ts                    cache, quota guard and fallbacks
     ai.ts, ai-tasks.ts               Groq client, prompts and schemas

@@ -96,7 +96,9 @@ export const himalayas: Adapter = {
     const p = new URLSearchParams({ q: keyword(input), country: countryLabel(input.country), page: "1", sort: "recent" });
     if (input.includeJobs) p.set("seniority", "Entry-level");
     else p.set("employment_type", "Intern");
-    const { body, headers } = await getJson(`https://himalayas.app/jobs/api/search?${p}`, UA);
+    // A free key raises the shared public limit to 60 calls a minute.
+    const auth: Record<string, string> = process.env.HIMALAYAS_API_KEY ? { Authorization: `Bearer ${process.env.HIMALAYAS_API_KEY}` } : {};
+    const { body, headers } = await getJson(`https://himalayas.app/jobs/api/search?${p}`, { ...UA, ...auth });
     const jobs = (body?.jobs ?? []) as HmJob[];
     return {
       headers,
@@ -521,12 +523,14 @@ export const jooble: Adapter = {
   ttlHours: 24,
   reserve: 0,
   apiKey: () => process.env.JOOBLE_API_KEY,
-  cacheKey: (i) => `jooble|${keyword(i)}|${i.city ?? ""}|${i.includeJobs}`,
+  cacheKey: (i) => `jooble|${keyword(i)}|${i.city ?? ""}|${i.includeJobs}|${i.country}`,
+  // Jooble keys belong to one country portal. A jooble.org key returns US listings, so it is only used for searches abroad.
+  supports: (i) => (i.country !== "in" || (process.env.JOOBLE_HOST ?? "").startsWith("in.") ? true : "This Jooble key covers listings outside India."),
   async fetch(input, key) {
-    const host = process.env.JOOBLE_HOST || "in.jooble.org";
+    const host = process.env.JOOBLE_HOST || "jooble.org";
     const { body, headers } = await getJson(`https://${host}/api/${key}`, { ...UA, "Content-Type": "application/json" }, {
       method: "POST",
-      body: JSON.stringify({ keywords: `${keyword(input)}${input.includeJobs ? "" : " intern"}`, location: input.city ?? "India", page: "1", ResultOnPage: "40" }),
+      body: JSON.stringify({ keywords: `${keyword(input)}${input.includeJobs ? "" : " intern"}`, location: input.city ?? (input.country === "in" ? "India" : ""), page: "1", ResultOnPage: "40" }),
     });
     return {
       headers,

@@ -2,6 +2,8 @@ import "server-only";
 import { extractSkills } from "@/lib/skills";
 import type { SearchInput } from "@/lib/search-input";
 import type { Listing, ListingDetails, Pay, SourceId, WorkMode } from "@/lib/types";
+import { linkedinJdBackup } from "./sources-rapid";
+import type { QuotaSpec } from "./store";
 import { COUNTRIES } from "@/lib/taxonomy";
 
 export class SourceHttpError extends Error {
@@ -19,6 +21,14 @@ export type DetailsAdapter = {
   label: string;
   /** Turn the reference the client sends (listing URL or id) into a cache key and request, or null if invalid. */
   fetch: (ref: string, key: string) => Promise<{ details: ListingDetails; headers: Headers }> | null;
+  /** A second provider used when the first one's free calls run out or it fails. */
+  fallback?: {
+    id: string;
+    label: string;
+    reserve: number;
+    apiKey: () => string | undefined;
+    fetch: (ref: string, key: string) => Promise<{ details: ListingDetails; headers: Headers }> | null;
+  };
 };
 
 /** The visitor's IP and browser, which some APIs (Careerjet) require to be forwarded. */
@@ -34,6 +44,10 @@ export type Adapter = {
   apiKey: () => string | undefined;
   cacheKey: (input: SearchInput) => string;
   fetch: (input: SearchInput, key: string, ctx: RequestCtx) => Promise<{ listings: Listing[]; headers: Headers }>;
+  /** Return a reason string when this source cannot serve the search, so no call is made. */
+  supports?: (input: SearchInput) => true | string;
+  /** How to read the remaining budget from response headers, when it is not the RapidAPI default. */
+  quota?: QuotaSpec;
 };
 
 const TIMEOUT_MS = 20_000;
@@ -448,6 +462,7 @@ export const DETAILS: Partial<Record<SourceId, DetailsAdapter>> = {
   linkedin: {
     source: "linkedin",
     label: "LinkedIn",
+    fallback: linkedinJdBackup,
     fetch(ref, key) {
       if (!/^\d{6,14}$/.test(ref)) return null;
       return getJson(`https://jobs-api14.p.rapidapi.com/v2/linkedin/get?id=${ref}`, {

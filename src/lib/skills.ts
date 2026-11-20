@@ -222,3 +222,16 @@ export function dedupeSkills(list: string[]): string[] {
   }
   return out;
 }
+
+const SOFT = /skill|abilit|communicat|teamwork|collaborat|thinking|attitude|willing|learn|motivat|attention|problem|leadership|empathy|feedback|listening|curiosity|optimism|inclusion|well being|time management|interpersonal|independent/i;
+
+/**
+ * Board-supplied skill lists mix tools with soft skills ("Strong analytical thinking"), which dilute
+ * matching. Keeps recognised skills, plus a few short unknown ones that are probably tools.
+ */
+export function tidySkills(raw: string[]): string[] {
+  if (!raw.length) return raw;
+  const known = dedupeSkills(raw.flatMap((x) => extractSkills(x)));
+  const other = raw.filter((x) => !extractSkills(x).length && x.trim().split(/\s+/).length <= 3 && !SOFT.test(x)).slice(0, 4);
+  return [...known, ...other].slice(0, 12);
+}

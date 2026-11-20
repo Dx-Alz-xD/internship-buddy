@@ -1,5 +1,6 @@
 import "server-only";
 import type { SearchInput } from "@/lib/search-input";
+import { tidySkills } from "@/lib/skills";
 import type { Listing, ListingDetails, SourceResult } from "@/lib/types";
 import { type Adapter, type DetailsAdapter, type RequestCtx, SourceHttpError } from "./sources";
 import { getCached, getQuota, recordQuota, setCached } from "./store";
@@ -7,9 +8,10 @@ import { getCached, getQuota, recordQuota, setCached } from "./store";
 /** Identical requests that arrive together (React dev mode mounts twice) share one upstream call. */
 const inFlight = new Map<string, Promise<SourceResult>>();
 
+/** Drops listings whose deadline has passed and cleans skill lists, for fresh and cached results alike. */
 const stillOpen = (listings: Listing[]) => {
   const now = Date.now();
-  return listings.filter((l) => !l.deadline || Date.parse(l.deadline) > now);
+  return listings.filter((l) => !l.deadline || Date.parse(l.deadline) > now).map((l) => ({ ...l, skills: tidySkills(l.skills) }));
 };
 
 const when = (ms: number) =>
@@ -42,6 +44,9 @@ async function run(adapter: Adapter, input: SearchInput, refresh: boolean, key: 
   const apiKey = adapter.apiKey();
   if (!apiKey) return fallback("missing-key", `No API key set for ${adapter.label}.`);
 
+  const supported = adapter.supports ? adapter.supports(input) : true;
+  if (supported !== true) return { ...base, status: "skipped", fetchedAt: null, listings: [], message: supported };
+
   if (quota?.remaining != null && quota.remaining <= adapter.reserve) {
     const reset = quota.resetAt ? ` It resets ${when(Date.parse(quota.resetAt))}.` : "";
     return fallback("quota", `${adapter.label}'s free monthly calls are used up.${reset}`);
@@ -49,7 +54,7 @@ async function run(adapter: Adapter, input: SearchInput, refresh: boolean, key: 
 
   try {
     const { listings, headers } = await adapter.fetch(input, apiKey, ctx);
-    await recordQuota(adapter.id, headers);
+    await recordQuota(adapter.id, headers, false, adapter.quota);
     await setCached(key, listings);
     return { ...base, quota: await getQuota(adapter.id), status: "live", fetchedAt: new Date().toISOString(), listings: stillOpen(listings) };
   } catch (err) {
@@ -59,7 +64,7 @@ async function run(adapter: Adapter, input: SearchInput, refresh: boolean, key: 
         return fallback("quota", `${adapter.label} says the monthly limit is reached.`);
       }
       if (err.status === 401 || err.status === 403) {
-        return fallback("error", `${adapter.label} rejected the API key (${err.status}). Check that the key is subscribed to this API.`);
+        return fallback("error", `${adapter.label} rejected the request (${err.status}): ${err.message}. Check that the key is subscribed to this API and allowed from this server.`);
       }
       return fallback("error", `${adapter.label} returned an error: ${err.message}.`);
     }
@@ -82,24 +87,32 @@ export async function runDetails(adapter: DetailsAdapter, ref: string, reserve: 
   const cached = await getCached<ListingDetails>(key);
   if (cached && Date.now() - cached.savedAt < DETAILS_TTL) return { ok: true, details: cached.data, cached: true };
 
-  const apiKey = adapter.source === "internshala" ? process.env.INTERNSHALA_API_KEY : process.env.RAPIDAPI_KEY;
-  if (!apiKey) return { ok: false, status: 503, message: `No API key set for ${adapter.label}.` };
-  const quota = await getQuota(adapter.source);
-  if (quota?.remaining != null && quota.remaining <= reserve) {
-    return cached
-      ? { ok: true, details: cached.data, cached: true }
-      : { ok: false, status: 429, message: `${adapter.label}'s free monthly calls are used up, so the full description is not available.` };
+  // Try the main provider, then the fallback, each behind its own monthly budget guard.
+  const providers = [
+    { id: adapter.source as string, label: adapter.label, reserve, apiKey: () => (adapter.source === "internshala" ? process.env.INTERNSHALA_API_KEY : process.env.RAPIDAPI_KEY), fetch: adapter.fetch },
+    ...(adapter.fallback ? [adapter.fallback] : []),
+  ];
+  let message = `${adapter.label} did not return the full listing.`;
+  for (const p of providers) {
+    const apiKey = p.apiKey();
+    if (!apiKey) continue;
+    const quota = await getQuota(p.id);
+    if (quota?.remaining != null && quota.remaining <= p.reserve) {
+      message = `${p.label}'s free monthly calls are used up, so the full description is not available.`;
+      continue;
+    }
+    const job = p.fetch(ref, apiKey);
+    if (!job) return { ok: false, status: 400, message: "That listing reference is not valid." };
+    try {
+      const { details, headers } = await job;
+      await recordQuota(p.id, headers);
+      if (!details.description) continue;
+      await setCached(key, details);
+      return { ok: true, details, cached: false };
+    } catch (err) {
+      if (err instanceof SourceHttpError && err.status === 429) await recordQuota(p.id, err.headers, true);
+    }
   }
-  const job = adapter.fetch(ref, apiKey);
-  if (!job) return { ok: false, status: 400, message: "That listing reference is not valid." };
-  try {
-    const { details, headers } = await job;
-    await recordQuota(adapter.source, headers);
-    await setCached(key, details);
-    return { ok: true, details, cached: false };
-  } catch (err) {
-    if (err instanceof SourceHttpError && err.status === 429) await recordQuota(adapter.source, err.headers, true);
-    if (cached) return { ok: true, details: cached.data, cached: true };
-    return { ok: false, status: 502, message: `${adapter.label} did not return the full listing.` };
-  }
+  if (cached) return { ok: true, details: cached.data, cached: true };
+  return { ok: false, status: 502, message };
 }

@@ -50,27 +50,45 @@ export async function setCached<T>(key: string, data: T) {
 }
 
 const quotaFile = path.join(ROOT, "quota.json");
-type QuotaLedger = Partial<Record<SourceId, QuotaInfo>>;
+type QuotaLedger = Record<string, QuotaInfo>;
+
+/**
+ * How to read a provider's remaining budget. Some free plans count jobs returned rather than calls
+ * (hirebase, fantastic.jobs, jobs-api21), so their job allowance is turned into calls left.
+ */
+export type QuotaSpec = {
+  requestsHeader?: string;
+  limitHeader?: string;
+  units?: { header: string; limitHeader?: string; perCall: number }[];
+};
 
 export async function getQuotas(): Promise<QuotaLedger> {
   return (await readJson<QuotaLedger>(quotaFile)) ?? {};
 }
 
-export async function getQuota(source: SourceId): Promise<QuotaInfo | null> {
+export async function getQuota(source: SourceId | string): Promise<QuotaInfo | null> {
   const q = (await getQuotas())[source] ?? null;
-  // Once the reset time has passed the provider has refilled the budget.
+  // Once the reset time has passed the provider has refilled the budget. Providers that never say
+  // when they reset are assumed to be monthly.
   if (q?.resetAt && Date.parse(q.resetAt) < Date.now()) return null;
+  if (q && !q.resetAt && Date.now() - Date.parse(q.updatedAt) > 31 * 864e5) return null;
   return q;
 }
 
 /** Reads the rate-limit headers both RapidAPI and omkar.cloud send back. */
-export async function recordQuota(source: SourceId, headers: Headers, exhausted = false) {
+export async function recordQuota(source: SourceId | string, headers: Headers, exhausted = false, spec?: QuotaSpec) {
   const num = (name: string) => {
     const v = headers.get(name);
     return v == null || v === "" || Number.isNaN(Number(v)) ? null : Number(v);
   };
-  const limit = num("x-ratelimit-requests-limit");
-  let remaining = num("x-ratelimit-requests-remaining");
+  let limit = num(spec?.limitHeader ?? "x-ratelimit-requests-limit");
+  let remaining = num(spec?.requestsHeader ?? "x-ratelimit-requests-remaining");
+  for (const u of spec?.units ?? []) {
+    const left = num(u.header);
+    if (left != null) remaining = Math.min(remaining ?? Infinity, Math.floor(left / u.perCall));
+    const cap = u.limitHeader ? num(u.limitHeader) : null;
+    if (cap != null) limit = Math.min(limit ?? Infinity, Math.floor(cap / u.perCall));
+  }
   const reset = num("x-ratelimit-requests-reset");
   if (exhausted) remaining = 0;
   if (limit == null && remaining == null && !exhausted) return;

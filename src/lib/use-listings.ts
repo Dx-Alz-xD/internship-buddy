@@ -16,7 +16,12 @@ export const SOURCES: { id: SourceId; label: string; credit?: string }[] = [
   { id: "programs", label: "Programs", credit: "https://github.com/iitian-vibes/India-Tech-Internships" },
   { id: "careerjet", label: "Careerjet", credit: "https://www.careerjet.co.in" },
   { id: "adzuna", label: "Adzuna", credit: "https://www.adzuna.in" },
-  { id: "jooble", label: "Jooble", credit: "https://in.jooble.org" },
+  { id: "jooble", label: "Jooble", credit: "https://jooble.org" },
+  { id: "hirebase", label: "Hirebase", credit: "https://hirebase.org" },
+  { id: "fantastic", label: "Fantastic.jobs", credit: "https://fantastic.jobs" },
+  { id: "jobindex", label: "Job index" },
+  { id: "remotejobs", label: "Remote Jobs" },
+  { id: "freshers", label: "Fresher jobs" },
 ];
 
 export type SourceState = { loading: boolean; result: SourceResult | null };

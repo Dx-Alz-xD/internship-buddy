@@ -9,7 +9,12 @@ export type SourceId =
   | "programs"
   | "careerjet"
   | "adzuna"
-  | "jooble";
+  | "jooble"
+  | "hirebase"
+  | "fantastic"
+  | "jobindex"
+  | "remotejobs"
+  | "freshers";
 
 export type WorkMode = "remote" | "hybrid" | "onsite" | "unknown";
 
@@ -57,7 +62,8 @@ export type SourceStatus =
   | "stale" // cache is old but the API budget is used up or the API failed
   | "quota" // no budget left and nothing cached
   | "error"
-  | "missing-key";
+  | "missing-key"
+  | "skipped"; // the source does not cover this search (e.g. a US-only key for an India search)
 
 export type QuotaInfo = {
   limit: number | null;

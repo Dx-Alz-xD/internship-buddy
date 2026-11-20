@@ -289,7 +289,7 @@ function Discover() {
         ) : null}
 
         <div className="flex flex-wrap items-center gap-1.5">
-          {SOURCES.filter((s) => sources[s.id].result?.status !== "missing-key").map((s) => (
+          {SOURCES.filter((s) => !["missing-key", "skipped"].includes(sources[s.id].result?.status ?? "")).map((s) => (
             <SourceChip
               key={s.id}
               id={s.id}
