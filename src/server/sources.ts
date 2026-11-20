@@ -1,7 +1,7 @@
 import "server-only";
 import { extractSkills } from "@/lib/skills";
 import type { SearchInput } from "@/lib/search-input";
-import type { Listing, Pay, SourceId, WorkMode } from "@/lib/types";
+import type { Listing, ListingDetails, Pay, SourceId, WorkMode } from "@/lib/types";
 import { COUNTRIES } from "@/lib/taxonomy";
 
 export class SourceHttpError extends Error {
@@ -14,6 +14,16 @@ export class SourceHttpError extends Error {
   }
 }
 
+export type DetailsAdapter = {
+  source: SourceId;
+  label: string;
+  /** Turn the reference the client sends (listing URL or id) into a cache key and request, or null if invalid. */
+  fetch: (ref: string, key: string) => Promise<{ details: ListingDetails; headers: Headers }> | null;
+};
+
+/** The visitor's IP and browser, which some APIs (Careerjet) require to be forwarded. */
+export type RequestCtx = { ip: string; ua: string };
+
 export type Adapter = {
   id: SourceId;
   label: string;
@@ -23,13 +33,13 @@ export type Adapter = {
   reserve: number;
   apiKey: () => string | undefined;
   cacheKey: (input: SearchInput) => string;
-  fetch: (input: SearchInput, key: string) => Promise<{ listings: Listing[]; headers: Headers }>;
+  fetch: (input: SearchInput, key: string, ctx: RequestCtx) => Promise<{ listings: Listing[]; headers: Headers }>;
 };
 
 const TIMEOUT_MS = 20_000;
 
-async function getJson(url: string, headers: Record<string, string>) {
-  const res = await fetch(url, { headers, signal: AbortSignal.timeout(TIMEOUT_MS), cache: "no-store" });
+export async function getJson(url: string, headers: Record<string, string>, init: RequestInit = {}) {
+  const res = await fetch(url, { headers, signal: AbortSignal.timeout(TIMEOUT_MS), cache: "no-store", ...init });
   if (!res.ok) {
     let message = `HTTP ${res.status}`;
     try {
@@ -41,16 +51,16 @@ async function getJson(url: string, headers: Record<string, string>) {
   return { body: await res.json(), headers: res.headers };
 }
 
-const clean = (s: string | null | undefined) => (s ?? "").replace(/\s+/g, " ").trim();
-const truncate = (s: string, n: number) => (s.length > n ? s.slice(0, n - 1).trimEnd() + "…" : s);
+export const clean = (s: string | null | undefined) => (s ?? "").replace(/\s+/g, " ").trim();
+export const truncate = (s: string, n: number) => (s.length > n ? s.slice(0, n - 1).trimEnd() + "…" : s);
 const titleCase = (s: string) => s.replace(/\b\w/g, (c) => c.toUpperCase());
 
-function guessKind(title: string, types: string[] = []): Listing["kind"] {
+export function guessKind(title: string, types: string[] = []): Listing["kind"] {
   if (types.some((t) => /intern/i.test(t)) || /\bintern(ship)?\b|trainee|apprentice/i.test(title)) return "internship";
   return "job";
 }
 
-function guessWorkMode(...texts: (string | null | undefined)[]): WorkMode {
+export function guessWorkMode(...texts: (string | null | undefined)[]): WorkMode {
   const t = texts.filter(Boolean).join(" ").toLowerCase();
   if (/\bhybrid\b/.test(t)) return "hybrid";
   if (/\bremote\b|work from home|\bwfh\b/.test(t)) return "remote";
@@ -118,6 +128,7 @@ function fromInternshala(i: IsItem, kind: Listing["kind"]): Listing {
     url: i.link,
     publisher: "Internshala",
     tags,
+    detailsAvailable: true,
     partTime: !!i.is_part_time,
   };
 }
@@ -290,6 +301,7 @@ function fromLinkedIn(l: LiItem): Listing {
     url: l.linkedinUrl,
     publisher: "LinkedIn",
     tags: [],
+    detailsAvailable: true,
     partTime: false,
   };
 }
@@ -402,5 +414,61 @@ const unstop: Adapter = {
   },
 };
 
-export const ADAPTERS: Record<SourceId, Adapter> = { internshala, jsearch, linkedin, unstop };
-export const SOURCE_IDS = Object.keys(ADAPTERS) as SourceId[];
+export const CORE_ADAPTERS = { internshala, jsearch, linkedin, unstop };
+
+/* ------------------------------ Details ------------------------------ */
+
+const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : null);
+const strList = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
+
+export const DETAILS: Partial<Record<SourceId, DetailsAdapter>> = {
+  internshala: {
+    source: "internshala",
+    label: "Internshala",
+    fetch(ref, key) {
+      const m = ref.match(/^https:\/\/internshala\.com\/(internship|job)\/detail\/([A-Za-z0-9-]+)/);
+      if (!m) return null;
+      const [, kind, slug] = m;
+      const url = kind === "job" ? `https://internshala-scraper.omkar.cloud/internshala/jobs/details?job=${slug}` : `https://internshala-scraper.omkar.cloud/internshala/internships/details?internship=${slug}`;
+      return getJson(url, { "API-Key": key }).then(({ body: d, headers }) => ({
+        headers,
+        details: {
+          description: typeof d.description === "string" ? d.description : null,
+          whoCanApply: strList(d.who_can_apply),
+          requirements: typeof d.other_requirements === "string" ? d.other_requirements : strList(d.other_requirements).join("\n") || null,
+          perks: strList(d.perks),
+          applyBy: d.apply_by?.date ?? null,
+          openings: num(d.openings),
+          applicants: num(d.applicants),
+          start: d.start_date?.label ?? null,
+        },
+      }));
+    },
+  },
+  linkedin: {
+    source: "linkedin",
+    label: "LinkedIn",
+    fetch(ref, key) {
+      if (!/^\d{6,14}$/.test(ref)) return null;
+      return getJson(`https://jobs-api14.p.rapidapi.com/v2/linkedin/get?id=${ref}`, {
+        "x-rapidapi-host": "jobs-api14.p.rapidapi.com",
+        "x-rapidapi-key": key,
+      }).then(({ body, headers }) => {
+        const d = body?.data ?? body ?? {};
+        return {
+          headers,
+          details: {
+            description: typeof d.description === "string" ? d.description : null,
+            whoCanApply: [d.seniorityLevel, d.employmentType].filter((x): x is string => typeof x === "string"),
+            requirements: null,
+            perks: [],
+            applyBy: null,
+            openings: null,
+            applicants: num(d.applicants),
+            start: null,
+          },
+        };
+      });
+    },
+  },
+};

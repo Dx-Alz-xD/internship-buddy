@@ -13,15 +13,17 @@ import {
   useSensor,
   useSensors,
 } from "@dnd-kit/core";
-import { CalendarClock, Plus, Search } from "lucide-react";
+import { CalendarClock, CalendarPlus, Check, Mail, Plus, Search } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { AppCard } from "@/components/tracker/app-card";
 import { AppDialog } from "@/components/tracker/app-dialog";
+import { SaveAnywhere } from "@/components/tracker/save-anywhere";
 import { Button } from "@/components/ui/button";
 import { daysUntil, dueText, shortDate } from "@/lib/format";
 import { countUp } from "@/lib/motion";
+import { downloadIcs, reminders } from "@/lib/reminders";
 import { useAppStore } from "@/lib/store";
 import { STATUS_META } from "@/lib/taxonomy";
 import { APP_STATUSES, type Application, type AppStatus } from "@/lib/types";
@@ -93,6 +95,11 @@ function Tracker() {
   const removeApplication = useAppStore((s) => s.removeApplication);
 
   const [editing, setEditing] = useState<Application | null>(null);
+  const [editTab, setEditTab] = useState<"details" | "prep" | "write">("details");
+  const openApp = (a: Application, tab: "details" | "prep" | "write" = "details") => {
+    setEditTab(tab);
+    setEditing(a);
+  };
   const [adding, setAdding] = useState(false);
   const [dragId, setDragId] = useState<string | null>(null);
   const [lastMoved, setLastMoved] = useState<{ id: string; at: number } | null>(null);
@@ -122,15 +129,17 @@ function Tracker() {
     };
   }, [applications, byStatus]);
 
-  const upcoming = useMemo(() => {
-    const items: { app: Application; date: string; text: string }[] = [];
-    for (const a of applications) {
-      if (a.nextStepOn && (daysUntil(a.nextStepOn) ?? -1) >= 0 && a.status !== "rejected")
-        items.push({ app: a, date: a.nextStepOn, text: a.nextStep || "Next step" });
-      if (a.status === "saved" && a.deadline && (daysUntil(a.deadline) ?? -1) >= 0) items.push({ app: a, date: a.deadline, text: "Application closes" });
-    }
-    return items.filter((i) => (daysUntil(i.date) ?? 99) <= 14).sort((x, y) => x.date.localeCompare(y.date));
-  }, [applications]);
+  const allReminders = useMemo(() => reminders(applications), [applications]);
+  const upcoming = useMemo(
+    () => allReminders.filter((r) => (r.kind === "followup" ? (daysUntil(r.date) ?? 99) <= 0 : (daysUntil(r.date) ?? 99) <= 14)),
+    [allReminders],
+  );
+
+  const markFollowedUp = (a: Application) => {
+    const inAWeek = new Date(Date.now() + 7 * 864e5).toISOString().slice(0, 10);
+    updateApplication(a.id, { nextStep: "Check for a reply", nextStepOn: inAWeek });
+    toast.success("Marked as followed up", { description: "We will check back in a week." });
+  };
 
   const move = (a: Application, status: AppStatus) => {
     if (a.status === status) return;
@@ -156,9 +165,12 @@ function Tracker() {
           <h1 className="font-display-wide mt-1 text-3xl leading-none font-extrabold sm:text-[2.6rem]">Your applications</h1>
           <p className="mt-2 text-sm text-muted-foreground">Drag a card to a new column when something changes. Everything is saved in this browser.</p>
         </div>
-        <Button onClick={() => setAdding(true)}>
-          <Plus /> Add an application
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <SaveAnywhere />
+          <Button onClick={() => setAdding(true)}>
+            <Plus /> Add an application
+          </Button>
+        </div>
       </header>
 
       {applications.length ? (
@@ -172,24 +184,46 @@ function Tracker() {
 
           {upcoming.length ? (
             <section className="mt-4 rounded-xl border border-marigold/40 bg-marigold-soft/60 p-3">
-              <h2 className="flex items-center gap-2 px-1 text-sm font-semibold">
-                <CalendarClock className="size-4 text-marigold" /> Next 14 days
-              </h2>
+              <div className="flex flex-wrap items-center justify-between gap-2 px-1">
+                <h2 className="flex items-center gap-2 text-sm font-semibold">
+                  <CalendarClock className="size-4 text-marigold" /> Coming up
+                </h2>
+                <Button
+                  variant="ghost"
+                  size="xs"
+                  onClick={() => {
+                    downloadIcs(allReminders, "internship-buddy-reminders.ics");
+                    toast.success("Calendar file downloaded", { description: "Open it to add every deadline, interview and follow-up to your calendar, with alerts." });
+                  }}
+                >
+                  <CalendarPlus /> Add all to calendar
+                </Button>
+              </div>
               <ul className="mt-2 grid gap-1.5 sm:grid-cols-2 lg:grid-cols-3">
-                {upcoming.slice(0, 6).map((u, i) => (
-                  <li key={i}>
+                {upcoming.slice(0, 9).map((u) => (
+                  <li key={u.key} className="flex items-center gap-1 rounded-lg bg-card pr-1.5">
                     <button
-                      onClick={() => setEditing(u.app)}
-                      className="flex w-full items-center gap-3 rounded-lg bg-card px-3 py-2 text-left text-sm outline-none hover:ring-1 hover:ring-border focus-visible:ring-3 focus-visible:ring-ring/40"
+                      onClick={() => openApp(u.app, u.kind === "followup" ? "write" : "details")}
+                      className="flex min-w-0 flex-1 items-center gap-3 rounded-lg px-3 py-2 text-left text-sm outline-none hover:bg-secondary/50 focus-visible:ring-3 focus-visible:ring-ring/40"
                     >
-                      <span className="w-14 shrink-0 font-mono text-xs font-semibold tabular">{shortDate(u.date)}</span>
+                      <span className={cn("w-14 shrink-0 font-mono text-xs font-semibold tabular", u.kind === "followup" && "text-stamp")}>
+                        {u.kind === "followup" ? "Now" : shortDate(u.date)}
+                      </span>
                       <span className="min-w-0 flex-1">
-                        <span className="block truncate font-medium">{u.text}</span>
-                        <span className="block truncate text-xs text-muted-foreground">
-                          {u.app.company} · {dueText(u.date)}
-                        </span>
+                        <span className="block truncate font-medium">{u.title}</span>
+                        <span className="block truncate text-xs text-muted-foreground">{u.kind === "followup" ? u.detail : `${u.app.company} · ${dueText(u.date)}`}</span>
                       </span>
                     </button>
+                    {u.kind === "followup" ? (
+                      <>
+                        <Button variant="ghost" size="icon-xs" onClick={() => openApp(u.app, "write")} aria-label={`Write a follow-up to ${u.app.company}`}>
+                          <Mail />
+                        </Button>
+                        <Button variant="ghost" size="icon-xs" onClick={() => markFollowedUp(u.app)} aria-label={`Mark ${u.app.company} as followed up`}>
+                          <Check />
+                        </Button>
+                      </>
+                    ) : null}
                   </li>
                 ))}
               </ul>
@@ -200,7 +234,7 @@ function Tracker() {
             <div className="-mx-4 mt-6 overflow-x-auto px-4 pb-4 sm:-mx-6 sm:px-6">
               <div className="flex gap-3 2xl:grid 2xl:grid-cols-6">
                 {APP_STATUSES.map((s) => (
-                  <Column key={s} status={s} apps={byStatus[s]} onOpen={setEditing} onMove={move} lastMoved={lastMoved} />
+                  <Column key={s} status={s} apps={byStatus[s]} onOpen={(a) => openApp(a)} onMove={move} lastMoved={lastMoved} />
                 ))}
               </div>
             </div>
@@ -240,6 +274,7 @@ function Tracker() {
       <AppDialog
         open={!!editing}
         app={editing}
+        initialTab={editTab}
         onOpenChange={(o) => !o && setEditing(null)}
         onSave={(f) => {
           if (!editing) return;

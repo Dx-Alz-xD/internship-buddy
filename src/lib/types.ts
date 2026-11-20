@@ -1,4 +1,15 @@
-export type SourceId = "internshala" | "jsearch" | "linkedin" | "unstop";
+export type SourceId =
+  | "internshala"
+  | "jsearch"
+  | "linkedin"
+  | "unstop"
+  | "careers"
+  | "himalayas"
+  | "jobdata"
+  | "programs"
+  | "careerjet"
+  | "adzuna"
+  | "jooble";
 
 export type WorkMode = "remote" | "hybrid" | "onsite" | "unknown";
 
@@ -33,6 +44,8 @@ export type Listing = {
   url: string;
   publisher: string | null;
   tags: string[];
+  /** Whether the full description needs a separate (quota-using) call. */
+  detailsAvailable?: boolean;
   partTime: boolean;
   /** Filled in on the client when the same opening shows up on several sources. */
   alsoOn?: SourceId[];
@@ -85,19 +98,51 @@ export type Profile = {
   partTime: boolean;
   wantsJobs: boolean;
   links: { linkedin: string; github: string; portfolio: string };
-  cv: CvMeta | null;
+  /** The CV used by default for matching and AI writing. */
+  cvId: string | null;
+  /** Details read from the CV by AI; used to make AI answers specific. */
+  extras?: ProfileExtras;
   createdAt: string;
   updatedAt: string;
 };
 
-export type CvMeta = {
+export type ProfileExtras = {
+  cgpa: string;
+  projects: { name: string; summary: string; skills: string[] }[];
+  experience: { role: string; org: string; period: string; summary: string }[];
+  achievements: string[];
+};
+
+/** One uploaded CV. The file itself is kept separately in IndexedDB under its id. */
+export type CvVersion = {
+  id: string;
+  label: string;
   name: string;
   size: number;
   type: string;
   uploadedAt: string;
+  text: string;
   skills: string[];
   wordCount: number;
-  preview: string;
+};
+
+/** Extra details some boards only give on a per-listing call. */
+export type ListingDetails = {
+  description: string | null;
+  whoCanApply: string[];
+  requirements: string | null;
+  perks: string[];
+  applyBy: string | null;
+  openings: number | null;
+  applicants: number | null;
+  start: string | null;
+};
+
+export type CompanyPrep = {
+  company: string;
+  notes: string;
+  questions: { id: string; q: string; a: string; round: string; practised: boolean }[];
+  updatedAt: string;
 };
 
 export type CvParseResult = {
@@ -136,6 +181,8 @@ export type Application = {
   nextStep: string;
   contact: string;
   history: { status: AppStatus; at: string }[];
+  /** Which CV version was sent. */
+  cvId?: string | null;
   createdAt: string;
   updatedAt: string;
 };

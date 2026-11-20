@@ -93,13 +93,13 @@ export function StudentCard({ profile, className }: { profile: Partial<Profile>;
       <div className="flex items-end justify-between gap-3 border-t border-dashed px-4 py-3">
         <div className="space-y-1.5">
           <div className="flex items-center gap-1.5 text-xs">
-            {profile.cv ? (
+            {profile.cvId ? (
               <FileCheck2 className="size-3.5 text-offer" />
             ) : (
               <FileX2 className="size-3.5 text-muted-foreground" />
             )}
-            <span className={profile.cv ? "text-foreground" : "text-muted-foreground"}>
-              {profile.cv ? "CV on file" : "No CV yet"}
+            <span className={profile.cvId ? "text-foreground" : "text-muted-foreground"}>
+              {profile.cvId ? "CV on file" : "No CV yet"}
             </span>
             <span className="text-muted-foreground">·</span>
             <span className="font-mono text-[0.7rem] text-muted-foreground tabular">{skills.length} skills</span>

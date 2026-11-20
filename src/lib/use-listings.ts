@@ -2,14 +2,21 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { dedupe } from "./match";
-import { buildSearchInput, toQueryString } from "./search-input";
+import { buildSearchInput, type SearchOverride, toQueryString } from "./search-input";
 import type { Listing, Profile, SourceId, SourceResult } from "./types";
 
-export const SOURCES: { id: SourceId; label: string }[] = [
+export const SOURCES: { id: SourceId; label: string; credit?: string }[] = [
   { id: "internshala", label: "Internshala" },
   { id: "jsearch", label: "Google Jobs" },
   { id: "linkedin", label: "LinkedIn" },
   { id: "unstop", label: "Unstop" },
+  { id: "careers", label: "Company careers" },
+  { id: "himalayas", label: "Himalayas", credit: "https://himalayas.app" },
+  { id: "jobdata", label: "jobdataapi", credit: "https://jobdataapi.com" },
+  { id: "programs", label: "Programs", credit: "https://github.com/iitian-vibes/India-Tech-Internships" },
+  { id: "careerjet", label: "Careerjet", credit: "https://www.careerjet.co.in" },
+  { id: "adzuna", label: "Adzuna", credit: "https://www.adzuna.in" },
+  { id: "jooble", label: "Jooble", credit: "https://in.jooble.org" },
 ];
 
 export type SourceState = { loading: boolean; result: SourceResult | null };
@@ -18,14 +25,17 @@ const initial = () =>
   Object.fromEntries(SOURCES.map((s) => [s.id, { loading: true, result: null }])) as Record<SourceId, SourceState>;
 
 /** Asks every board in parallel; each one fills in as soon as it answers. */
-export function useListings(profile: Profile | null, roleId: string | null) {
+export function useListings(profile: Profile | null, roleId: string | null, override?: SearchOverride | null) {
   const [state, setState] = useState<Record<SourceId, SourceState>>(initial);
   // A refresh request only applies to the search it was made for, so switching roles never forces a paid call.
   const [refreshReq, setRefreshReq] = useState<{ qs: string; source: SourceId | "all"; n: number } | null>(null);
 
   const handledRefresh = useRef(0);
 
-  const qs = useMemo(() => (profile && roleId ? toQueryString(buildSearchInput(profile, roleId)) : null), [profile, roleId]);
+  const qs = useMemo(
+    () => (profile && roleId ? toQueryString(buildSearchInput(profile, roleId, override)) : null),
+    [profile, roleId, override],
+  );
 
   useEffect(() => {
     if (!qs) return;

@@ -1,10 +1,11 @@
-import type { NextRequest } from "next/server";
-import { ADAPTERS, SOURCE_IDS } from "@/server/sources";
+import { connection } from "next/server";
+import { aiConfigured } from "@/server/ai";
+import { ADAPTERS, SOURCE_IDS } from "@/server/registry";
 import { getQuotas } from "@/server/store";
 
-export async function GET(req: NextRequest) {
-  // Reading the URL keeps this handler request-time, so the numbers are always current.
-  void req.nextUrl;
+export async function GET() {
+  // Quotas change with every API call, so this must run per request rather than at build time.
+  await connection();
   const quotas = await getQuotas();
   const sources = SOURCE_IDS.map((id) => ({
     id,
@@ -13,5 +14,5 @@ export async function GET(req: NextRequest) {
     refreshHours: ADAPTERS[id].ttlHours,
     quota: quotas[id] ?? null,
   }));
-  return Response.json({ sources }, { headers: { "Cache-Control": "no-store" } });
+  return Response.json({ sources, ai: aiConfigured() }, { headers: { "Cache-Control": "no-store" } });
 }

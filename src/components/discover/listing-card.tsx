@@ -1,6 +1,6 @@
 "use client";
 
-import { Banknote, Bookmark, BookmarkCheck, CalendarClock, Clock3, EyeOff, MapPin, Send } from "lucide-react";
+import { Banknote, Bookmark, BookmarkCheck, CalendarClock, Clock3, EyeOff, MapPin, Send, ShieldAlert } from "lucide-react";
 import { useEffect, useRef } from "react";
 import { CompanyLogo } from "@/components/company-logo";
 import { Stamp } from "@/components/stamp";
@@ -9,6 +9,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { dueText, formatPay, postedText } from "@/lib/format";
 import type { Match } from "@/lib/match";
 import { slamStamp } from "@/lib/motion";
+import { scamSignals } from "@/lib/scam";
 import { STATUS_META } from "@/lib/taxonomy";
 import type { AppStatus, Listing } from "@/lib/types";
 import { SOURCES } from "@/lib/use-listings";
@@ -66,6 +67,7 @@ export function ListingCard({
     prev.current = status;
   }, [status]);
 
+  const scam = scamSignals(listing);
   const pay = formatPay(listing.pay);
   const posted = postedText(listing.postedLabel, listing.postedAt);
   const due = listing.deadline ? dueText(listing.deadline.slice(0, 10)) : null;
@@ -125,6 +127,23 @@ export function ListingCard({
           </span>
         ) : null}
       </div>
+
+      {scam.level !== "none" ? (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span
+              className={cn(
+                "inline-flex w-fit items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-medium",
+                scam.level === "high" ? "bg-reject/10 text-reject" : "bg-marigold-soft text-foreground",
+              )}
+            >
+              <ShieldAlert className="size-3.5" />
+              {scam.level === "high" ? "Possible scam" : "Check before applying"}
+            </span>
+          </TooltipTrigger>
+          <TooltipContent className="max-w-xs">{scam.reasons.join(". ")}</TooltipContent>
+        </Tooltip>
+      ) : null}
 
       {skills.length ? (
         <div className="flex flex-wrap gap-1">

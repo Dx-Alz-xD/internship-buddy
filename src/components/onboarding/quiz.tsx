@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, ArrowRight, Check, Pencil } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, Loader2, Pencil, Sparkles } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -14,6 +14,8 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
+import { callAi, requestAiConsent } from "@/lib/ai-client";
+import type { CvExtract } from "@/lib/ai-types";
 import { rupees } from "@/lib/format";
 import { slideStep } from "@/lib/motion";
 import { dedupeSkills, SKILL_NAMES } from "@/lib/skills";
@@ -49,7 +51,7 @@ export const EMPTY_DRAFT: Draft = {
   partTime: true,
   wantsJobs: false,
   links: { linkedin: "", github: "", portfolio: "" },
-  cv: null,
+  cvId: null,
 };
 
 const DRAFT_KEY = "internship-buddy:draft";
@@ -92,10 +94,51 @@ function expectedGradYear(degree: string, year: StudyYear | null) {
 const isFinalYear = (degree: string, year: StudyYear | null) =>
   year === "grad" || (year != null && Number(year) >= programmeLength(degree || "B.Tech / B.E."));
 
+/** Inverse of expectedGradYear: which year a student is in, given when they graduate. */
+function yearFromGrad(degree: string, gradYear: number): StudyYear {
+  const now = new Date();
+  const sessionStart = now.getMonth() >= 6 ? now.getFullYear() : now.getFullYear() - 1;
+  const left = gradYear - sessionStart;
+  if (left <= 0) return "grad";
+  const len = programmeLength(degree || "B.Tech / B.E.");
+  return String(Math.min(len, Math.max(1, len - left + 1))) as StudyYear;
+}
+
+/** Merges what the AI read from the CV into the answers, never overwriting what the student typed. */
+function applyExtract(p: Draft, x: CvExtract): Draft {
+  const degree = p.degree || x.degree;
+  let year = p.year;
+  if (!year) {
+    if (x.currentYear !== "unknown") year = x.currentYear;
+    else if (x.gradYear && degree) year = yearFromGrad(degree, x.gradYear);
+  }
+  const gradYear = p.gradYear ?? x.gradYear ?? (year ? expectedGradYear(degree, year) : null);
+  return {
+    ...p,
+    name: p.name || x.name,
+    college: p.college || x.college,
+    collegeCity: p.collegeCity || x.collegeCity,
+    degree,
+    branch: p.branch || x.branch,
+    year,
+    gradYear,
+    status: year === "grad" ? "graduate" : p.status,
+    wantsJobs: year && !p.year ? isFinalYear(degree, year) : p.wantsJobs,
+    skills: dedupeSkills([...p.skills, ...x.skills]),
+    roles: p.roles.length ? p.roles : x.suggestedRoles.filter((id) => ROLES.some((r) => r.id === id)).slice(0, 3),
+    links: {
+      linkedin: p.links.linkedin || x.links.linkedin,
+      github: p.links.github || x.links.github,
+      portfolio: p.links.portfolio || x.links.portfolio,
+    },
+    extras: { cgpa: x.cgpa, projects: x.projects, experience: x.experience, achievements: x.achievements },
+  };
+}
+
 const STEPS = [
+  { id: "cv", title: "Your CV" },
   { id: "about", title: "About you" },
   { id: "college", title: "College" },
-  { id: "cv", title: "Your CV" },
   { id: "roles", title: "Roles" },
   { id: "skills", title: "Skills" },
   { id: "prefs", title: "Preferences" },
@@ -196,7 +239,30 @@ export function Quiz({ initial, editing }: { initial: Draft; editing: boolean })
   const router = useRouter();
   const setProfile = useAppStore((s) => s.setProfile);
   const setActiveRole = useAppStore((s) => s.setActiveRole);
+  const addCv = useAppStore((s) => s.addCv);
+  const removeCv = useAppStore((s) => s.removeCv);
+  const saveAi = useAppStore((s) => s.saveAi);
   const [d, setD] = useState<Draft>(initial);
+  const currentCv = useAppStore((s) => s.cvs.find((c) => c.id === d.cvId) ?? null);
+  const aiExtract = useAppStore((s) => (d.cvId ? (s.ai[`cv-extract:${d.cvId}`]?.data as CvExtract | undefined) : undefined));
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+
+  const fillWithAi = async (cvId: string, text: string) => {
+    if (!(await requestAiConsent())) return;
+    setAiBusy(true);
+    setAiError(null);
+    try {
+      const x = await callAi<CvExtract>("cv-extract", { text });
+      saveAi(`cv-extract:${cvId}`, x);
+      setD((p) => applyExtract(p, x));
+      toast.success("Filled in your answers from the CV", { description: "Check each step; anything you type wins." });
+    } catch (e) {
+      setAiError(e instanceof Error ? e.message : "The AI could not read this CV.");
+    } finally {
+      setAiBusy(false);
+    }
+  };
   const [stepIndex, setStepIndex] = useState(editing ? STEPS.length - 1 : 0);
   const [showError, setShowError] = useState(false);
   const [customRole, setCustomRole] = useState("");
@@ -279,7 +345,7 @@ export function Quiz({ initial, editing }: { initial: Draft; editing: boolean })
     });
 
   const roleSkillSuggestions = dedupeSkills(d.roles.flatMap((r) => getRole(r).skills));
-  const cvSkills = d.cv?.skills ?? [];
+  const cvSkills = currentCv?.skills ?? [];
   const gradOptions = Array.from({ length: 9 }, (_, i) => new Date().getFullYear() - 2 + i);
 
   return (
@@ -418,15 +484,20 @@ export function Quiz({ initial, editing }: { initial: Draft; editing: boolean })
           {step === "cv" && (
             <Question
               eyebrow="Your CV"
-              title="Add your CV so we can read your skills"
-              hint="The file is saved in this browser. Its text is read once on the server to pick out skills and profile links, and is not stored there."
+              title="Start with your CV and we'll fill in the rest"
+              hint="The file stays in this browser. Its text is read on the server to find your skills and links, and is not stored there."
             >
               <CvUpload
-                cv={d.cv}
-                onParsed={(meta, result) => {
+                cv={currentCv}
+                onParsed={(cv, result) => {
+                  if (d.cvId && d.cvId !== cv.id) {
+                    removeCv(d.cvId);
+                    void removeCvFile(d.cvId);
+                  }
+                  addCv(cv);
                   setD((p) => ({
                     ...p,
-                    cv: meta,
+                    cvId: cv.id,
                     skills: dedupeSkills([...p.skills, ...result.skills]),
                     links: {
                       linkedin: p.links.linkedin || result.links.linkedin,
@@ -434,15 +505,69 @@ export function Quiz({ initial, editing }: { initial: Draft; editing: boolean })
                       portfolio: p.links.portfolio || result.links.portfolio,
                     },
                   }));
-                  toast.success(`Read ${meta.name}`, {
-                    description: result.skills.length ? `Found ${result.skills.length} skills. You can review them in step 5.` : "No skills were recognised. You can add them in step 5.",
+                  toast.success(`Read ${cv.name}`, {
+                    description: result.skills.length ? `Found ${result.skills.length} skills.` : "No skills were recognised. You can add them later.",
                   });
+                  // With AI already allowed, go straight on to filling in the other answers.
+                  if (useAppStore.getState().aiConsent && cv.text) void fillWithAi(cv.id, cv.text);
                 }}
                 onRemove={() => {
-                  void removeCvFile();
-                  set("cv", null);
+                  if (d.cvId) {
+                    removeCv(d.cvId);
+                    void removeCvFile(d.cvId);
+                  }
+                  set("cvId", null);
                 }}
               />
+              {currentCv ? (
+                <div className="rounded-xl border border-stamp/30 bg-stamp-soft/50 p-4">
+                  {aiBusy ? (
+                    <div className="flex items-center gap-2 text-sm font-medium text-stamp">
+                      <Loader2 className="size-4 animate-spin" /> Reading your education, projects and experience…
+                    </div>
+                  ) : aiExtract ? (
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2 text-sm font-semibold text-stamp">
+                        <Sparkles className="size-4" /> Filled in from your CV
+                      </div>
+                      <div className="flex flex-wrap gap-1.5 text-xs">
+                        {[
+                          aiExtract.name && "Name",
+                          aiExtract.college && "College",
+                          aiExtract.degree && "Degree",
+                          aiExtract.branch && "Branch",
+                          (aiExtract.gradYear || aiExtract.currentYear !== "unknown") && "Year",
+                          aiExtract.cgpa && `CGPA ${aiExtract.cgpa}`,
+                          `${aiExtract.skills.length} skills`,
+                          aiExtract.projects.length && `${aiExtract.projects.length} projects`,
+                          aiExtract.experience.length && `${aiExtract.experience.length} experience`,
+                          aiExtract.suggestedRoles.length && `${aiExtract.suggestedRoles.length} suggested roles`,
+                        ]
+                          .filter(Boolean)
+                          .map((t) => (
+                            <span key={String(t)} className="rounded-md bg-card px-2 py-0.5 font-medium">
+                              ✓ {t}
+                            </span>
+                          ))}
+                      </div>
+                      <p className="text-xs text-muted-foreground">Continue to check each answer. Anything you type replaces what the AI found.</p>
+                    </div>
+                  ) : (
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 text-sm font-semibold">
+                          <Sparkles className="size-4 text-stamp" /> Fill in my answers with AI
+                        </div>
+                        <p className="mt-0.5 text-xs text-muted-foreground">Reads your college, degree, year, projects and experience. Sends the CV text to Groq.</p>
+                      </div>
+                      <Button type="button" onClick={() => fillWithAi(currentCv.id, currentCv.text)}>
+                        <Sparkles /> Fill in with AI
+                      </Button>
+                    </div>
+                  )}
+                  {aiError ? <p className="mt-2 text-sm text-destructive">{aiError}</p> : null}
+                </div>
+              ) : null}
               {cvSkills.length ? (
                 <div className="space-y-2">
                   <div className="form-caption">Skills found in your CV</div>
@@ -463,7 +588,7 @@ export function Quiz({ initial, editing }: { initial: Draft; editing: boolean })
                   </div>
                 ))}
               </div>
-              {!d.cv ? <p className="text-sm text-muted-foreground">No CV right now? Continue and add it later from your profile. Matching works from the skills you pick.</p> : null}
+              {!d.cvId ? <p className="text-sm text-muted-foreground">No CV right now? Skip this step and add it later from your profile. Matching works from the skills you pick.</p> : null}
             </Question>
           )}
 
@@ -657,9 +782,9 @@ export function Quiz({ initial, editing }: { initial: Draft; editing: boolean })
             <Question eyebrow="Review" title={editing ? "Your answers" : "Check your answers"} hint="Edit anything that looks off. You can change all of this later from your profile.">
               <dl className="divide-y rounded-xl border bg-card">
                 {[
-                  { at: 0, label: "You", value: `${d.name || "—"} · ${d.status === "student" ? "College student" : d.status === "graduate" ? "Recent graduate" : "Switching fields"}` },
-                  { at: 1, label: "College", value: [d.college, [d.degree, d.branch].filter(Boolean).join(", "), YEARS.find((y) => y.value === d.year)?.label, d.gradYear ? `graduating ${d.gradYear}` : ""].filter(Boolean).join(" · ") || "—" },
-                  { at: 2, label: "CV", value: d.cv ? `${d.cv.name} (${d.cv.skills.length} skills found)` : "Not added" },
+                  { at: 1, label: "You", value: `${d.name || "—"} · ${d.status === "student" ? "College student" : d.status === "graduate" ? "Recent graduate" : "Switching fields"}` },
+                  { at: 2, label: "College", value: [d.college, [d.degree, d.branch].filter(Boolean).join(", "), YEARS.find((y) => y.value === d.year)?.label, d.gradYear ? `graduating ${d.gradYear}` : ""].filter(Boolean).join(" · ") || "—" },
+                  { at: 0, label: "CV", value: currentCv ? `${currentCv.name} (${currentCv.skills.length} skills found)` : "Not added" },
                   { at: 3, label: "Roles", value: d.roles.map((r) => getRole(r).label).join(", ") || "—" },
                   { at: 4, label: "Skills", value: d.skills.join(", ") || "—" },
                   {
@@ -715,7 +840,7 @@ export function Quiz({ initial, editing }: { initial: Draft; editing: boolean })
             <ArrowLeft /> Back
           </Button>
           <div className="flex items-center gap-2">
-            {step === "cv" && !d.cv ? (
+            {step === "cv" && !d.cvId ? (
               <Button type="button" variant="ghost" size="lg" onClick={() => go(stepIndex + 1)}>
                 Skip for now
               </Button>

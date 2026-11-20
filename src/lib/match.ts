@@ -125,7 +125,8 @@ const norm = (s: string) =>
     .replace(/[^a-z0-9]+/g, " ")
     .trim();
 
-const SOURCE_RANK = { internshala: 0, jsearch: 1, linkedin: 2, unstop: 3 } as const;
+// When the same opening appears twice, keep the copy from the board with the richest data.
+const SOURCE_RANK: Record<string, number> = { internshala: 0, careers: 1, jsearch: 2, himalayas: 3, jobdata: 4, adzuna: 5, careerjet: 6, jooble: 7, linkedin: 8, unstop: 9, programs: 10 };
 
 /** Merges the same opening posted on several boards, keeping the most detailed copy. */
 export function dedupe(listings: Listing[]): Listing[] {

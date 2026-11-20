@@ -1,13 +1,14 @@
 "use client";
 
-import { RequireProfile } from "@/components/require-profile";
-import { Download, FileDown, FileUp, Pencil, Trash2 } from "lucide-react";
+import { Bell, BellOff, FileDown, FileUp, Pencil, Sparkles, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { ChipPicker } from "@/components/chip-picker";
-import { CvUpload } from "@/components/cv-upload";
+import { CvManager } from "@/components/profile/cv-manager";
+import { enableNotifications } from "@/components/reminder-watcher";
+import { RequireProfile } from "@/components/require-profile";
 import { StudentCard } from "@/components/student-card";
 import {
   AlertDialog,
@@ -21,11 +22,12 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 import { rupees } from "@/lib/format";
 import { dedupeSkills, SKILL_NAMES } from "@/lib/skills";
-import { loadCvFile, removeCvFile, useAppStore } from "@/lib/store";
+import { removeCvFile, useAppStore } from "@/lib/store";
 import { COUNTRIES, getRole } from "@/lib/taxonomy";
-import type { Application, Profile, QuotaInfo, SourceId } from "@/lib/types";
+import type { Application, CompanyPrep, CvVersion, Profile, QuotaInfo, SourceId } from "@/lib/types";
 
 type Usage = { id: SourceId; label: string; configured: boolean; refreshHours: number; quota: QuotaInfo | null };
 
@@ -46,10 +48,14 @@ function Section({ title, hint, children, action }: { title: string; hint?: stri
 
 function ApiUsage() {
   const [rows, setRows] = useState<Usage[] | null>(null);
+  const [ai, setAi] = useState<boolean | null>(null);
   useEffect(() => {
     fetch("/api/usage")
       .then((r) => r.json())
-      .then((d: { sources: Usage[] }) => setRows(d.sources))
+      .then((d: { sources: Usage[]; ai: boolean }) => {
+        setRows(d.sources);
+        setAi(d.ai);
+      })
       .catch(() => setRows([]));
   }, []);
   if (!rows) return <div className="h-24 animate-pulse rounded-lg bg-secondary" />;
@@ -59,17 +65,22 @@ function ApiUsage() {
         const q = r.quota;
         const pct = q?.limit && q.remaining != null ? Math.max(0, Math.min(100, (q.remaining / q.limit) * 100)) : null;
         return (
-          <li key={r.id} className="grid grid-cols-[7rem_1fr_auto] items-center gap-4 py-2.5 text-sm">
+          <li key={r.id} className="grid grid-cols-[7.5rem_1fr_auto] items-center gap-4 py-2.5 text-sm">
             <span className="font-medium">{r.label}</span>
             <span className="h-1.5 overflow-hidden rounded-full bg-secondary">
               {pct != null ? <span className="block h-full rounded-full bg-stamp" style={{ width: `${pct}%` }} /> : null}
             </span>
             <span className="text-right font-mono text-xs text-muted-foreground tabular">
-              {!r.configured ? "no key" : q?.remaining != null ? `${q.remaining}${q.limit ? `/${q.limit}` : ""} left` : "not used yet"}
+              {!r.configured ? "no key" : q?.remaining != null ? `${q.remaining}${q.limit ? `/${q.limit}` : ""} left` : "free, no limit shown"}
             </span>
           </li>
         );
       })}
+      <li className="grid grid-cols-[7.5rem_1fr_auto] items-center gap-4 py-2.5 text-sm">
+        <span className="font-medium">Groq AI</span>
+        <span />
+        <span className="text-right font-mono text-xs text-muted-foreground">{ai == null ? "…" : ai ? "connected" : "no key"}</span>
+      </li>
     </ul>
   );
 }
@@ -78,38 +89,39 @@ function ProfileView() {
   const router = useRouter();
   const profile = useAppStore((s) => s.profile)!;
   const applications = useAppStore((s) => s.applications);
+  const cvs = useAppStore((s) => s.cvs);
+  const prep = useAppStore((s) => s.prep);
+  const aiConsent = useAppStore((s) => s.aiConsent);
+  const setAiConsent = useAppStore((s) => s.setAiConsent);
+  const notifyOn = useAppStore((s) => s.notify.enabled);
+  const setNotify = useAppStore((s) => s.setNotify);
   const patchProfile = useAppStore((s) => s.patchProfile);
   const importData = useAppStore((s) => s.importData);
   const reset = useAppStore((s) => s.reset);
   const fileInput = useRef<HTMLInputElement>(null);
 
-  const downloadCv = async () => {
-    const blob = await loadCvFile();
-    if (!blob || !profile.cv) {
-      toast.error("The CV file is not in this browser any more. Upload it again.");
-      return;
-    }
-    const url = URL.createObjectURL(blob);
-    const a = Object.assign(document.createElement("a"), { href: url, download: profile.cv.name });
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-  };
-
   const exportData = () => {
-    const data = { app: "internship-buddy", version: 1, exportedAt: new Date().toISOString(), profile, applications };
+    const data = { app: "internship-buddy", version: 2, exportedAt: new Date().toISOString(), profile, applications, cvs, prep };
     const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }));
-    const a = Object.assign(document.createElement("a"), { href: url, download: `internship-buddy-${new Date().toISOString().slice(0, 10)}.json` });
-    a.click();
+    Object.assign(document.createElement("a"), { href: url, download: `internship-buddy-${new Date().toISOString().slice(0, 10)}.json` }).click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
-    toast.success("Backup downloaded", { description: "It holds your answers and tracker. The CV file is not included." });
+    toast.success("Backup downloaded", { description: "It holds your answers, tracker, prep notes and CV text. CV files themselves are not included." });
   };
 
   const importFile = async (file: File | undefined) => {
     if (!file) return;
     try {
-      const data = JSON.parse(await file.text()) as { app?: string; profile?: Profile; applications?: Application[] };
+      const data = JSON.parse(await file.text()) as {
+        app?: string;
+        profile?: Profile & { cv?: unknown };
+        applications?: Application[];
+        cvs?: CvVersion[];
+        prep?: Record<string, CompanyPrep>;
+      };
       if (data.app !== "internship-buddy" || !data.profile || !Array.isArray(data.applications)) throw new Error();
-      importData({ profile: data.profile, applications: data.applications });
+      const { cv: _old, ...profileRest } = data.profile;
+      void _old;
+      importData({ profile: { ...profileRest, cvId: profileRest.cvId ?? null }, applications: data.applications, cvs: data.cvs ?? [], prep: data.prep ?? {} });
       toast.success("Backup restored", { description: `${data.applications.length} applications loaded.` });
     } catch {
       toast.error("That file is not an Internship Buddy backup.");
@@ -126,6 +138,7 @@ function ProfileView() {
     profile.partTime ? "part-time OK" : "full-time only",
     profile.wantsJobs ? "jobs included" : "internships only",
   ];
+  const x = profile.extras;
 
   return (
     <div className="mx-auto max-w-6xl px-4 pt-6 sm:px-6 lg:pt-10">
@@ -153,6 +166,18 @@ function ProfileView() {
               <dt className="form-caption">Preferences</dt>
               <dd className="mt-1">{prefs.filter(Boolean).join(" · ")}</dd>
             </div>
+            {x?.projects.length ? (
+              <div>
+                <dt className="form-caption">Projects from your CV</dt>
+                <dd className="mt-1 space-y-1">
+                  {x.projects.map((p) => (
+                    <p key={p.name}>
+                      <span className="font-medium">{p.name}</span> <span className="text-muted-foreground">{p.summary}</span>
+                    </p>
+                  ))}
+                </dd>
+              </div>
+            ) : null}
             {profile.links.linkedin || profile.links.github || profile.links.portfolio ? (
               <div>
                 <dt className="form-caption">Links</dt>
@@ -171,37 +196,51 @@ function ProfileView() {
         </div>
 
         <div className="space-y-6">
-          <Section
-            title="CV"
-            hint="Stored only in this browser. Replacing it adds any newly found skills."
-            action={
-              profile.cv ? (
-                <Button variant="outline" size="sm" onClick={downloadCv}>
-                  <Download /> Download
-                </Button>
-              ) : null
-            }
-          >
-            <CvUpload
-              cv={profile.cv}
-              onParsed={(cv, result) => {
-                const added = result.skills.filter((s) => !profile.skills.some((p) => p.toLowerCase() === s.toLowerCase()));
-                patchProfile({ cv, skills: dedupeSkills([...profile.skills, ...result.skills]) });
-                toast.success(`CV updated`, { description: added.length ? `Added ${added.length} new skills: ${added.slice(0, 5).join(", ")}` : "No new skills found." });
-              }}
-              onRemove={() => {
-                void removeCvFile();
-                patchProfile({ cv: null });
-                toast("CV removed");
-              }}
-            />
+          <Section title="CVs" hint="Keep a version per kind of role. The main CV is used for matching and AI writing; the tracker records which one you sent.">
+            <CvManager />
           </Section>
 
           <Section title="Skills" hint="Listings asking for these rank higher. Changes apply straight away.">
             <ChipPicker label="Skills" value={profile.skills} onChange={(skills) => patchProfile({ skills: dedupeSkills(skills) })} options={SKILL_NAMES} placeholder="Add a skill" />
           </Section>
 
-          <Section title="Job board usage" hint="Each board's free plan has a monthly cap, so results are cached and reused until they go stale.">
+          <Section title="AI and reminders">
+            <div className="divide-y rounded-lg border">
+              <label className="flex items-center justify-between gap-4 px-4 py-3">
+                <span className="flex gap-3">
+                  <Sparkles className="mt-0.5 size-4 shrink-0 text-stamp" />
+                  <span>
+                    <span className="block text-sm font-medium">AI features</span>
+                    <span className="block text-xs text-muted-foreground">Fit checks, writing help, CV review and search send your profile, CV text and listings to Groq.</span>
+                  </span>
+                </span>
+                <Switch checked={aiConsent} onCheckedChange={setAiConsent} />
+              </label>
+              <label className="flex items-center justify-between gap-4 px-4 py-3">
+                <span className="flex gap-3">
+                  {notifyOn ? <Bell className="mt-0.5 size-4 shrink-0 text-stamp" /> : <BellOff className="mt-0.5 size-4 shrink-0 text-muted-foreground" />}
+                  <span>
+                    <span className="block text-sm font-medium">Notify me on this device</span>
+                    <span className="block text-xs text-muted-foreground">
+                      Deadlines, interviews and follow-ups due today or tomorrow, while Internship Buddy is open. For reminders when it is closed, add them to your calendar from the tracker.
+                    </span>
+                  </span>
+                </span>
+                <Switch
+                  checked={notifyOn}
+                  onCheckedChange={async (on) => {
+                    if (!on) return setNotify({ enabled: false });
+                    const r = await enableNotifications();
+                    if (r === "denied") toast.error("Notifications are blocked for this site. Allow them in your browser's site settings.");
+                    if (r === "unsupported") toast.error("This browser does not support notifications.");
+                    if (r === "granted") toast.success("Reminders are on for this device");
+                  }}
+                />
+              </label>
+            </div>
+          </Section>
+
+          <Section title="Job board usage" hint="Free plans have monthly caps, so results are cached and reused until they go stale.">
             <ApiUsage />
           </Section>
 
@@ -222,9 +261,9 @@ function ProfileView() {
                 </AlertDialogTrigger>
                 <AlertDialogContent>
                   <AlertDialogHeader>
-                    <AlertDialogTitle>Delete your profile, CV and tracker?</AlertDialogTitle>
+                    <AlertDialogTitle>Delete your profile, CVs and tracker?</AlertDialogTitle>
                     <AlertDialogDescription>
-                      This removes your answers, your CV file and all {applications.length} tracked applications from this browser. It cannot be undone unless you have a backup.
+                      This removes your answers, {cvs.length} CV{cvs.length === 1 ? "" : "s"}, prep notes and all {applications.length} tracked applications from this browser. It cannot be undone unless you have a backup.
                     </AlertDialogDescription>
                   </AlertDialogHeader>
                   <AlertDialogFooter>
@@ -232,7 +271,7 @@ function ProfileView() {
                     <AlertDialogAction
                       className="bg-destructive text-white hover:bg-destructive/90"
                       onClick={() => {
-                        void removeCvFile();
+                        cvs.forEach((c) => void removeCvFile(c.id));
                         reset();
                         router.replace("/");
                         toast("All data deleted");

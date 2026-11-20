@@ -5,8 +5,8 @@ import { FileText, Loader2, RefreshCw, Trash2, Upload } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { reducedMotion } from "@/lib/motion";
-import { saveCvFile } from "@/lib/store";
-import type { CvMeta, CvParseResult } from "@/lib/types";
+import { saveCvFile, uid } from "@/lib/store";
+import type { CvParseResult, CvVersion } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 const ACCEPT = ".pdf,.docx,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain";
@@ -37,12 +37,17 @@ function ReadingSheet() {
 
 export function CvUpload({
   cv,
+  label = "Main CV",
   onParsed,
   onRemove,
+  emptyText = "Drop your CV here, or choose a file",
 }: {
-  cv: CvMeta | null;
-  onParsed: (meta: CvMeta, result: CvParseResult) => void;
+  cv: CvVersion | null;
+  /** Name given to the new CV version. */
+  label?: string;
+  onParsed: (cv: CvVersion, result: CvParseResult) => void;
   onRemove?: () => void;
+  emptyText?: string;
 }) {
   const input = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
@@ -64,16 +69,19 @@ export function CvUpload({
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error ?? "This file could not be read.");
       const result = data as CvParseResult;
-      await saveCvFile(file);
+      const id = uid();
+      await saveCvFile(id, file);
       onParsed(
         {
+          id,
+          label,
           name: file.name,
           size: file.size,
           type: file.type || "application/octet-stream",
           uploadedAt: new Date().toISOString(),
+          text: result.text,
           skills: result.skills,
           wordCount: result.wordCount,
-          preview: result.text.slice(0, 600),
         },
         result,
       );
@@ -162,7 +170,7 @@ export function CvUpload({
             <span className="flex size-12 items-center justify-center rounded-full bg-stamp-soft text-stamp">
               <Upload className="size-5" />
             </span>
-            <span className="font-medium">Drop your CV here, or choose a file</span>
+            <span className="font-medium">{emptyText}</span>
             <span className="max-w-sm text-sm text-muted-foreground">PDF, DOCX or TXT, up to 5 MB.</span>
           </>
         )}

@@ -12,13 +12,18 @@ export type SearchInput = {
   country: string; // ISO-2, lowercase
 };
 
-export function buildSearchInput(profile: Profile, roleId: string): SearchInput {
+/** A one-off change to where to search, e.g. from a plain-English search, without editing the profile. */
+export type SearchOverride = { city?: string | null; remote?: boolean };
+
+export function buildSearchInput(profile: Profile, roleId: string, override?: SearchOverride | null): SearchInput {
   const role = getRole(roleId);
+  const remote = override?.remote ?? profile.workMode === "remote";
+  const city = override?.city !== undefined ? override.city : profile.cities[0] ?? null;
   return {
     query: role.query,
     category: role.internshala ?? null,
-    city: profile.workMode === "remote" || profile.region === "abroad" ? null : (profile.cities[0] ?? null),
-    remote: profile.workMode === "remote",
+    city: remote || profile.region === "abroad" ? null : city,
+    remote,
     includeJobs: profile.wantsJobs,
     country: profile.region === "abroad" ? profile.country || "us" : "in",
   };

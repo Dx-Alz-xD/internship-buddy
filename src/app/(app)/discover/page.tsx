@@ -1,7 +1,7 @@
 "use client";
 
 import { RequireProfile } from "@/components/require-profile";
-import { CircleAlert, CircleCheck, Clock, KeyRound, Loader2, RefreshCw, Search, SlidersHorizontal } from "lucide-react";
+import { CircleAlert, CircleCheck, Clock, KeyRound, Loader2, RefreshCw, Search, SlidersHorizontal, Sparkles, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { ListingCard } from "@/components/discover/listing-card";
@@ -11,9 +11,12 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { callAi, requestAiConsent } from "@/lib/ai-client";
+import type { SearchParse } from "@/lib/ai-types";
 import { daysAgo, monthlyInr, rupees } from "@/lib/format";
 import { type Match, scoreListing } from "@/lib/match";
 import { riseIn } from "@/lib/motion";
+import type { SearchOverride } from "@/lib/search-input";
 import { useAppStore } from "@/lib/store";
 import { getRole } from "@/lib/taxonomy";
 import type { AppStatus, Listing, SourceId } from "@/lib/types";
@@ -100,8 +103,13 @@ function Discover() {
   const hideListing = useAppStore((s) => s.hideListing);
   const unhideAll = useAppStore((s) => s.unhideAll);
 
-  const roleId = storedRole && profile.roles.includes(storedRole) ? storedRole : profile.roles[0]!;
-  const { sources, listings, loading, refresh } = useListings(profile, roleId);
+  // A plain-English search can switch role and place for this visit without touching the profile.
+  const [ai, setAi] = useState<{ roleId: string | null; override: SearchOverride | null; keywords: string[]; minPay: number | null; summary: string } | null>(null);
+  const [ask, setAsk] = useState("");
+  const [asking, setAsking] = useState(false);
+  const profileRole = storedRole && profile.roles.includes(storedRole) ? storedRole : profile.roles[0]!;
+  const roleId = ai?.roleId ?? profileRole;
+  const { sources, listings, loading, refresh } = useListings(profile, roleId, ai?.override ?? null);
 
   const [q, setQ] = useState("");
   const [mode, setMode] = useState<Mode>(profile.workMode === "remote" ? "remote" : "all");
@@ -128,9 +136,11 @@ function Discover() {
       if (kind !== "all" && l.kind !== kind) return false;
       if (payOnly) {
         const m = monthlyInr(l.pay);
-        if (m == null || m < profile.minStipend || m === 0) return false;
+        if (m == null || m < (ai?.minPay ?? profile.minStipend) || m === 0) return false;
       }
-      if (needle && !`${l.title} ${l.company} ${l.skills.join(" ")} ${l.locationLabel}`.toLowerCase().includes(needle)) return false;
+      const hay = `${l.title} ${l.company} ${l.skills.join(" ")} ${l.locationLabel}`.toLowerCase();
+      if (needle && !hay.includes(needle)) return false;
+      if (ai?.keywords.length && !ai.keywords.some((k) => `${hay} ${l.summary} ${l.description ?? ""}`.toLowerCase().includes(k.toLowerCase()))) return false;
       return true;
     });
     const posted = (l: Listing) => daysAgo(l.postedAt) ?? 999;
@@ -140,7 +150,46 @@ function Discover() {
       return b.match.score - a.match.score || posted(a.listing) - posted(b.listing);
     });
     return out;
-  }, [scored, q, mode, kind, payOnly, off, sort, profile.minStipend]);
+  }, [scored, q, mode, kind, payOnly, off, sort, profile.minStipend, ai]);
+
+  const runAsk = async () => {
+    const text = ask.trim();
+    if (!text || !(await requestAiConsent())) return;
+    setAsking(true);
+    try {
+      const r = await callAi<SearchParse>("search", { q: text, cities: profile.cities.join(", ") });
+      const nextRole = r.roleId !== "none" ? r.roleId : r.customRole ? `custom:${r.customRole}` : null;
+      const override: SearchOverride = {};
+      if (r.workMode === "remote") override.remote = true;
+      else if (r.workMode !== "any") override.remote = false;
+      if (r.city) override.city = r.city;
+      setAi({
+        roleId: nextRole,
+        override: Object.keys(override).length ? override : null,
+        keywords: r.keywords,
+        minPay: r.minStipend || null,
+        summary: r.summary || text,
+      });
+      setMode(r.workMode === "remote" ? "remote" : r.workMode === "onsite" || r.workMode === "hybrid" ? "office" : "all");
+      setKind(r.kind === "any" ? "all" : r.kind);
+      setSort(r.sort);
+      setPayOnly(r.minStipend > 0);
+      setQ("");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "The search could not be understood.");
+    } finally {
+      setAsking(false);
+    }
+  };
+
+  const clearAsk = () => {
+    setAi(null);
+    setAsk("");
+    setMode(profile.workMode === "remote" ? "remote" : "all");
+    setKind("all");
+    setSort("match");
+    setPayOnly(false);
+  };
 
   // Cards rise in whenever the visible set changes.
   const grid = useRef<HTMLDivElement>(null);
@@ -159,7 +208,9 @@ function Discover() {
 
   const open = openId ? scored.find((s) => s.listing.id === openId) ?? null : null;
   const role = getRole(roleId);
-  const where = profile.workMode === "remote" ? "remote" : profile.region === "abroad" ? "abroad" : profile.cities[0] ? `in ${profile.cities[0]}` : "across India";
+  const remoteNow = ai?.override?.remote ?? profile.workMode === "remote";
+  const cityNow = ai?.override?.city !== undefined ? ai.override.city : profile.cities[0];
+  const where = remoteNow ? "remote" : profile.region === "abroad" ? "abroad" : cityNow ? `in ${cityNow}` : "across India";
   const strong = visible.filter((v) => v.match.score >= 70).length;
   const anyLoaded = SOURCES.some((s) => sources[s.id].result);
   const filtersActive = q || mode !== (profile.workMode === "remote" ? "remote" : "all") || kind !== "all" || payOnly || off.length;
@@ -175,7 +226,7 @@ function Discover() {
             </h1>
             <p className="mt-2 text-sm text-muted-foreground" aria-live="polite">
               {loading && !anyLoaded
-                ? "Checking four job boards…"
+                ? "Checking job boards…"
                 : `${visible.length} openings${strong ? `, ${strong} strong matches` : ""}${loading ? " · still loading some boards" : ""}`}
             </p>
           </div>
@@ -184,7 +235,41 @@ function Discover() {
           </Button>
         </div>
 
-        {profile.roles.length > 1 ? (
+        <form
+          className="flex flex-wrap items-center gap-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void runAsk();
+          }}
+        >
+          <div className="relative min-w-[16rem] flex-1">
+            <Sparkles className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-stamp" />
+            <Input
+              value={ask}
+              onChange={(e) => setAsk(e.target.value)}
+              placeholder="Describe what you want, e.g. remote React internships paying 10k+"
+              aria-label="Search in plain English"
+              className="h-10 border-stamp/30 bg-card pl-9"
+            />
+          </div>
+          <Button type="submit" disabled={asking || !ask.trim()} className="h-10">
+            {asking ? <Loader2 className="animate-spin" /> : <Search />} Search
+          </Button>
+        </form>
+        {ai ? (
+          <div className="flex flex-wrap items-center gap-2 rounded-lg border border-stamp/30 bg-stamp-soft/60 px-3 py-2 text-sm">
+            <Sparkles className="size-4 text-stamp" />
+            <span>
+              Showing: <span className="font-semibold">{ai.summary}</span>
+              {ai.keywords.length ? <span className="text-muted-foreground"> · mentions {ai.keywords.join(" or ")}</span> : null}
+            </span>
+            <Button variant="ghost" size="xs" className="ml-auto" onClick={clearAsk}>
+              <X /> Back to my profile search
+            </Button>
+          </div>
+        ) : null}
+
+        {profile.roles.length > 1 && !ai ? (
           <div className="flex flex-wrap gap-1.5" role="tablist" aria-label="Role">
             {profile.roles.map((r) => (
               <button
@@ -204,7 +289,7 @@ function Discover() {
         ) : null}
 
         <div className="flex flex-wrap items-center gap-1.5">
-          {SOURCES.map((s) => (
+          {SOURCES.filter((s) => sources[s.id].result?.status !== "missing-key").map((s) => (
             <SourceChip
               key={s.id}
               id={s.id}
@@ -259,7 +344,7 @@ function Discover() {
             </Select>
             <label className="flex items-center gap-2 px-2 text-sm whitespace-nowrap">
               <Switch checked={payOnly} onCheckedChange={setPayOnly} size="sm" />
-              {profile.minStipend ? `Pays ${rupees(profile.minStipend)}+` : "Paid only"}
+              {(ai?.minPay ?? profile.minStipend) ? `Pays ${rupees(ai?.minPay ?? profile.minStipend)}+` : "Paid only"}
             </label>
           </div>
         </div>
@@ -319,6 +404,23 @@ function Discover() {
           </button>
         </p>
       ) : null}
+
+      <footer className="mt-10 border-t border-dashed pt-4 text-xs text-muted-foreground">
+        Listings from{" "}
+        {SOURCES.filter((s) => (sources[s.id].result?.listings.length ?? 0) > 0).map((s, i, arr) => (
+          <span key={s.id}>
+            {s.credit ? (
+              <a href={s.credit} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 hover:text-foreground">
+                {s.label}
+              </a>
+            ) : (
+              s.label
+            )}
+            {i < arr.length - 1 ? ", " : "."}
+          </span>
+        ))}{" "}
+        Apply links go to each original posting.
+      </footer>
 
       <ListingSheet
         listing={open?.listing ?? null}

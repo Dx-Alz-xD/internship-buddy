@@ -1,11 +1,12 @@
 "use client";
 
-import { KanbanSquare, Moon, Search, Sun, UserRound } from "lucide-react";
+import { ChartColumn, KanbanSquare, Moon, Search, Sun, UserRound } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useTheme } from "next-themes";
 import { useEffect } from "react";
 import { Brand } from "@/components/brand";
+import { ReminderWatcher } from "@/components/reminder-watcher";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { initials } from "@/lib/format";
@@ -16,14 +17,15 @@ import { cn } from "@/lib/utils";
 const NAV = [
   { href: "/discover", label: "Discover", icon: Search },
   { href: "/tracker", label: "Tracker", icon: KanbanSquare },
+  { href: "/insights", label: "Insights", icon: ChartColumn },
   { href: "/profile", label: "Profile", icon: UserRound },
 ] as const;
 
 function ThemeToggle() {
   const { resolvedTheme, setTheme } = useTheme();
-  const dark = resolvedTheme === "dark";
+  // The theme is only known in the browser, so the label stays the same on server and client.
   return (
-    <Button variant="ghost" size="icon" onClick={() => setTheme(dark ? "light" : "dark")} aria-label={dark ? "Switch to light theme" : "Switch to dark theme"}>
+    <Button variant="ghost" size="icon" onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")} aria-label="Toggle dark mode">
       <Sun className="hidden dark:block" />
       <Moon className="dark:hidden" />
     </Button>
@@ -99,9 +101,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <ThemeToggle />
         </header>
         <main className="flex-1 pb-24 lg:pb-10">{children}</main>
+        {hydrated && profile ? <ReminderWatcher /> : null}
       </div>
 
-      <nav aria-label="Main" className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-3 border-t bg-background/95 backdrop-blur lg:hidden">
+      <nav aria-label="Main" className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-4 border-t bg-background/95 backdrop-blur lg:hidden">
         {NAV.map(({ href, label, icon: Icon }) => {
           const on = pathname.startsWith(href);
           return (

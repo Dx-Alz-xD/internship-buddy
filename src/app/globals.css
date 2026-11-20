@@ -50,6 +50,8 @@
   --color-marigold-soft: var(--marigold-soft);
   --color-offer: var(--offer);
   --color-reject: var(--reject);
+  --color-chart-bar: var(--chart-bar);
+  --color-chart-grid: var(--chart-grid);
 
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
@@ -76,6 +78,9 @@
   --marigold-soft: #fdf0d5;
   --offer: #1e7f55;
   --reject: #b8432f;
+  /* Chart marks: validated against the card surface in each theme */
+  --chart-bar: #5a3fc0;
+  --chart-grid: #e3e7f0;
 
   --background: var(--paper);
   --foreground: var(--ink);
@@ -120,6 +125,8 @@
   --marigold-soft: #3a2c10;
   --offer: #4cc28c;
   --reject: #f07a64;
+  --chart-bar: #8b74f2;
+  --chart-grid: #232a44;
 
   --background: var(--paper);
   --foreground: var(--ink);

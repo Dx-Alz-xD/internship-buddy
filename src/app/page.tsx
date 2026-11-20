@@ -9,7 +9,7 @@ import { HeroDemo } from "@/components/hero-demo";
 import { Button } from "@/components/ui/button";
 import { useAppStore, useHydrated } from "@/lib/store";
 
-const BOARDS = ["Internshala", "Unstop", "LinkedIn", "Google Jobs"];
+const BOARDS = ["Internshala", "Unstop", "LinkedIn", "Google Jobs", "Company career pages", "Himalayas"];
 
 export default function Home() {
   const hydrated = useHydrated();
@@ -36,7 +36,7 @@ export default function Home() {
             Internships that fit your year, skills and city.
           </h1>
           <p className="mt-6 max-w-xl text-lg leading-relaxed text-muted-foreground">
-            Answer seven questions and add your CV. Internship Buddy searches four job boards, ranks every opening against your profile, and tracks each
+            Answer seven questions and add your CV. Internship Buddy searches job boards and company career pages, ranks every opening against your profile, and tracks each
             application from the day you apply to the offer.
           </p>
           <div className="mt-8 flex flex-wrap items-center gap-4">
